@@ -1,0 +1,122 @@
+/* Page layout */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+    background: linear-gradient(180deg, #e3f2fd, #f5f7fb);
+    color: #102a43;
+}
+
+.page-wrapper {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 12px;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 1.9rem;
+    color: #1f3b64;
+}
+
+.subtitle {
+    margin-top: 6px;
+    font-size: 0.95rem;
+    color: #5a7184;
+}
+
+/* Card container */
+.card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 22px 24px 18px;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    width: 100%;
+    max-width: 480px;
+}
+
+/* Form styles */
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #1f2933;
+}
+
+input {
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid #cbd2e1;
+    font-size: 0.95rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background-color: #fdfdff;
+}
+
+input::placeholder {
+    color: #9fb3c8;
+    font-size: 0.9rem;
+}
+
+input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Button */
+.primary-btn {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(120deg, #2563eb, #1d4ed8);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.98rem;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.4);
+}
+
+.primary-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(37, 99, 235, 0.5);
+}
+
+/* Error message */
+.error {
+    margin-top: 6px;
+    color: #d32f2f;
+    font-size: 0.9rem;
+}
+
+/* Footer */
+.footer {
+    margin-top: 16px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: #6b7b8e;
+}
