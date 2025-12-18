@@ -7,6 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const csv = require("csv-parser");
 const bodyParser = require("body-parser");
+const helmet = require("helmet");
 const { db, validateSchema } = require("./database");
 
 const app = express();
@@ -49,11 +50,21 @@ app.use((req, res, next) => {
     });
 });
 
-// Basic security header to prevent simple XSS attacks using CSP
-app.use((req, res, next) => {
-    res.setHeader("Content-Security-Policy", "default-src 'self'");
-    next();
-});
+// ---------- 6.2 SECURITY: Content Security Policy (CSP) ----------
+app.use(
+    helmet.contentSecurityPolicy({
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'"],
+            imgSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+        },
+    })
+);
 
 // Serve static files (HTML, CSS, client-side JS)
 app.use(express.static(__dirname));
@@ -65,10 +76,10 @@ app.use(bodyParser.json());
 // 5.2.1 Function to sanitize input (remove dangerous characters)
 const sanitize = (value) => {
     return String(value || "")
-        .replace(/['";]/g, "") // remove quotes and semicolons
-        .replace(/--/g, "") // remove SQL comment markers
-        .replace(/[<>]/g, "") // remove HTML tag brackets (XSS)
-        .replace(/[\0\x08\x09\x1a\n\r\t\\%]/g, ""); // remove control chars
+        .replace(/['";]/g, "")
+        .replace(/--/g, "")
+        .replace(/[<>]/g, "")
+        .replace(/[\0\x08\x09\x1a\n\r\t\\%]/g, "");
 };
 
 // 5.2.2 SQL Injection Protection Middleware
@@ -76,14 +87,11 @@ app.use((req, res, next) => {
     const body = req.body || {};
     const query = req.query || {};
 
-    // If both body and query are empty, skip SQL injection check
     if (Object.keys(body).length === 0 && Object.keys(query).length === 0) {
         return next();
     }
 
     const payload = JSON.stringify({ body, query });
-
-    // Common SQL injection patterns
     const sqlInjectionPattern =
         /(\bDROP\b|\bDELETE\b|\bINSERT\b|\bUPDATE\b|\bSELECT\b|--|;|'|")/i;
 
@@ -97,20 +105,16 @@ app.use((req, res, next) => {
 
 // ---------- ROUTES ----------
 
-// Homepage (load form.html)
+// Homepage
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "form.html"));
 });
 
-// ---------------------------------------------------------
-// 3.2 Error Handling & Invalid Record Detection (Validation only)
-// Route to validate CSV and report invalid records (no DB insert)
-// ---------------------------------------------------------
+// Validate CSV only
 app.get("/validate-csv", (req, res, next) => {
     const csvFilePath = path.join(__dirname, "data", "data.csv");
-
     const invalidRows = [];
-    let rowNumber = 2; // line 1 = header, data starts at line 2
+    let rowNumber = 2;
 
     fs.createReadStream(csvFilePath)
         .pipe(csv())
@@ -130,52 +134,32 @@ app.get("/validate-csv", (req, res, next) => {
             );
 
             if (errors.length > 0) {
-                console.warn(
-                    `Invalid CSV record at line ${rowNumber}: ${errors.join(", ")}`
-                );
                 invalidRows.push({
                     line: rowNumber,
-                    data: { firstName, secondName, email, phone, eircode },
-                    errors: errors,
+                    errors,
                 });
             }
-
             rowNumber++;
         })
         .on("end", () => {
             if (invalidRows.length === 0) {
-                return res.json({
-                    message: "All records in data.csv are valid.",
-                    invalidCount: 0,
-                });
+                return res.json({ message: "All records are valid." });
             }
-
-            res.status(400).json({
-                message: "CSV contains invalid records.",
-                invalidCount: invalidRows.length,
-                invalidRows: invalidRows,
-            });
+            res.status(400).json({ invalidRows });
         })
-        .on("error", (err) => {
-            console.error("CSV read error in /validate-csv:", err.message);
-            next(err);
-        });
+        .on("error", next);
 });
 
-// ---------------------------------------------------------
-// Route to import and validate CSV file, then insert valid rows
-// ---------------------------------------------------------
+// Import CSV
 app.get("/import-csv", (req, res) => {
     validateSchema((schemaErr) => {
         if (schemaErr) {
-            return res.status(500).send("Database schema is incorrect. Check logs.");
+            return res.status(500).send("Database schema error.");
         }
 
         const csvFilePath = path.join(__dirname, "data", "data.csv");
-
         const validRows = [];
-        const invalidRows = [];
-        let rowNumber = 2; // header is line 1
+        let rowNumber = 2;
 
         fs.createReadStream(csvFilePath)
             .pipe(csv())
@@ -194,10 +178,7 @@ app.get("/import-csv", (req, res) => {
                     eircode
                 );
 
-                if (errors.length > 0) {
-                    console.log(`Invalid row ${rowNumber}:`, errors.join(", "));
-                    invalidRows.push({ row: rowNumber, errors });
-                } else {
+                if (errors.length === 0) {
                     validRows.push([
                         firstName,
                         secondName,
@@ -206,12 +187,11 @@ app.get("/import-csv", (req, res) => {
                         eircode,
                     ]);
                 }
-
                 rowNumber++;
             })
             .on("end", () => {
                 if (validRows.length === 0) {
-                    return res.send("CSV processed. No valid rows found.");
+                    return res.send("No valid rows found.");
                 }
 
                 const insertQuery = `
@@ -220,30 +200,12 @@ app.get("/import-csv", (req, res) => {
                     VALUES ?
                 `;
 
-                db.query(insertQuery, [validRows], (err, result) => {
+                db.query(insertQuery, [validRows], (err) => {
                     if (err) {
-                        console.error("Error inserting CSV data:", err.message);
                         return res.status(500).send("Database insert error.");
                     }
-
-                    let response = `
-                        CSV Import Complete.<br>
-                        Valid rows inserted: ${result.affectedRows}<br>
-                    `;
-
-                    if (invalidRows.length > 0) {
-                        response +=
-                            "Invalid rows: " +
-                            invalidRows.map((x) => x.row).join(", ") +
-                            "<br>Check server logs for details.";
-                    }
-
-                    res.send(response);
+                    res.send("CSV imported successfully.");
                 });
-            })
-            .on("error", (err) => {
-                console.error("CSV read error:", err.message);
-                res.status(500).send("CSV reading error.");
             });
     });
 });
@@ -251,45 +213,21 @@ app.get("/import-csv", (req, res) => {
 // ---------- VALIDATION FUNCTION ----------
 function validateRecord(firstName, secondName, email, phone, eircode) {
     const errors = [];
-
-    // Extra protection: block SQL keywords or dangerous characters
     const dangerous = /(DROP|DELETE|INSERT|UPDATE|SELECT|--|;|'|")/i;
-    if (dangerous.test(firstName)) errors.push("Invalid characters in first name");
-    if (dangerous.test(secondName)) errors.push("Invalid characters in second name");
-    if (dangerous.test(email)) errors.push("Invalid characters in email");
-    if (dangerous.test(phone)) errors.push("Invalid characters in phone");
-    if (dangerous.test(eircode)) errors.push("Invalid characters in eircode");
 
-    // Name: letters and numbers, max 20 characters
-    const nameRegex = /^[A-Za-z0-9]{1,20}$/;
-    if (!nameRegex.test(firstName)) errors.push("Invalid first name");
-    if (!nameRegex.test(secondName)) errors.push("Invalid second name");
-
-    // Basic email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) errors.push("Invalid email format");
-
-    // Phone: exactly 10 digits
-    const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(phone)) errors.push("Invalid phone number");
-
-    // Eircode: allow Irish style (A65 F4E2 or A65F4E2)
-    const compactEircode = eircode.replace(/\s/g, "");
-    const eircodeRegex = /^[A-Za-z0-9]{7}$/;
-    if (!eircodeRegex.test(compactEircode)) {
-        errors.push("Invalid eircode format");
-    }
+    if (dangerous.test(firstName)) errors.push("Invalid first name");
+    if (dangerous.test(secondName)) errors.push("Invalid second name");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email");
+    if (!/^[0-9]{10}$/.test(phone)) errors.push("Invalid phone");
+    if (!/^[A-Za-z0-9]{7}$/.test(eircode.replace(/\s/g, "")))
+        errors.push("Invalid eircode");
 
     return errors;
 }
 
 // ---------- FORM SUBMISSION ----------
 app.post("/submit-form", (req, res) => {
-    validateSchema((schemaErr) => {
-        if (schemaErr) {
-            return res.status(500).send("Database schema error.");
-        }
-
+    validateSchema(() => {
         const firstName = sanitize(req.body.first_name);
         const secondName = sanitize(req.body.second_name);
         const email = sanitize(req.body.email);
@@ -305,7 +243,7 @@ app.post("/submit-form", (req, res) => {
         );
 
         if (errors.length > 0) {
-            return res.status(400).send("Form validation failed: " + errors.join(", "));
+            return res.status(400).send(errors.join(", "));
         }
 
         const insertQuery = `
@@ -317,36 +255,27 @@ app.post("/submit-form", (req, res) => {
         db.query(
             insertQuery,
             [firstName, secondName, email, phone, eircode],
-            (err) => {
-                if (err) {
-                    console.error("Form insert error:", err.message);
-                    return res.status(500).send("Database insert error.");
-                }
-
-                res.send("Form submitted and saved successfully.");
-            }
+            () => res.send("Form submitted successfully.")
         );
     });
 });
 
 // ---------- HEALTH CHECK ----------
 app.get("/health", (req, res) => {
-    console.log("🩺 /health route handler reached.");
     res.send("Server is running on port " + PORT);
 });
 
-// ---------- GLOBAL ERROR HANDLER (for unexpected errors) ----------
+// ---------- GLOBAL ERROR HANDLER ----------
 app.use((err, req, res, next) => {
-    console.error("Unhandled error:", err.stack || err);
+    console.error(err);
     res.status(500).send("Internal server error.");
 });
 
-// ---------- START SERVER (HTTP only when running index.js directly) ----------
+// ---------- START SERVER ----------
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`🚀 HTTP Server running at http://localhost:${PORT}`);
     });
 }
 
-// Export Express app for HTTPS server
 module.exports = app;
