@@ -2,6 +2,8 @@
 // CA2 - HTTPS + CSP + Input Sanitisation/Validation + DB Insert
 // CSV row validation with row number tracking
 // Invalid rows are skipped and logged
+
+// Final testing completed for CSV, form validation and database insert
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
